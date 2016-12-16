@@ -4,6 +4,16 @@ Chapter 4
 
 Support code for *Chapter 4: Topic Modeling*
 
+
+AP Data
+-------
+
+To download the AP data, use the ``download_ap.sh`` script inside the ``data``
+directory::
+
+    cd data
+    ./download_ap.sh
+
 Word cloud creation
 -------------------
 
@@ -49,3 +59,7 @@ Scripts
 
 blei_lda.py
     Computes LDA using the AP Corpus.
+wikitopics_create.py
+    Create the topic model for Wikipedia using LDA (must download wikipedia database first)
+wikitopics_create_hdp.py
+    Create the topic model for Wikipedia using HDP (must download wikipedia database first)

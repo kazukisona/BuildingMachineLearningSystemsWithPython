@@ -6,18 +6,20 @@
 # It is made available under the MIT License
 
 import mahotas as mh
-from sklearn import cross_validation
-from sklearn.linear_model.logistic import LogisticRegression
 import numpy as np
 from glob import glob
-from features import texture, edginess_sobel
+
+from features import texture, chist
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 basedir = '../SimpleImageDataset/'
 
 
 haralicks = []
-sobels = []
 labels = []
+chists = []
 
 print('This script will test (with cross-validation) classification of the simple 3 class dataset')
 print('Computing features...')
@@ -28,9 +30,9 @@ images = glob('{}/*.jpg'.format(basedir))
 # Otherwise, this would introduce some variation just based on the random
 # ordering that the filesystem uses
 for fname in sorted(images):
-    im = mh.imread(fname, as_grey=True)
-    haralicks.append(texture(im))
-    sobels.append(edginess_sobel(im))
+    imc = mh.imread(fname)
+    haralicks.append(texture(mh.colors.rgb2grey(imc)))
+    chists.append(chist(imc))
 
     # Files are named like building00.jpg, scene23.jpg...
     labels.append(fname[:-len('xx.jpg')])
@@ -38,27 +40,31 @@ for fname in sorted(images):
 print('Finished computing features.')
 
 haralicks = np.array(haralicks)
-sobels = np.array(sobels)
 labels = np.array(labels)
+chists = np.array(chists)
 
-# We use logistic regression because it is very fast.
+haralick_plus_chists = np.hstack([chists, haralicks])
+
+
+# We use Logistic Regression because it achieves high accuracy on small(ish) datasets
 # Feel free to experiment with other classifiers
-scores = cross_validation.cross_val_score(
-    LogisticRegression(), haralicks, labels, cv=5)
-print('Accuracy (5 fold x-val) with Logistic Regression [std features]: {}%'.format(
-    0.1 * round(1000 * scores.mean())))
+clf = Pipeline([('preproc', StandardScaler()),
+                ('classifier', LogisticRegression())])
 
-haralick_plus_sobel = np.hstack([np.atleast_2d(sobels).T, haralicks])
+from sklearn import cross_validation
+cv = cross_validation.LeaveOneOut(len(images))
 scores = cross_validation.cross_val_score(
-    LogisticRegression(), haralick_plus_sobel, labels, cv=5).mean()
-print('Accuracy (5 fold x-val) with Logistic Regression [std features + sobel]: {}%'.format(
-    0.1 * round(1000 * scores.mean())))
+    clf, haralicks, labels, cv=cv)
+print('Accuracy (Leave-one-out) with Logistic Regression [haralick features]: {:.1%}'.format(
+    scores.mean()))
 
-
-# We can try to just use the sobel feature. The result is almost completely
-# random.
 scores = cross_validation.cross_val_score(
-    LogisticRegression(), np.atleast_2d(sobels).T, labels, cv=5).mean()
-print('Accuracy (5 fold x-val) with Logistic Regression [only using sobel feature]: {}%'.format(
-    0.1 * round(1000 * scores.mean())))
+    clf, chists, labels, cv=cv)
+print('Accuracy (Leave-one-out) with Logistic Regression [color histograms]: {:.1%}'.format(
+    scores.mean()))
+
+scores = cross_validation.cross_val_score(
+    clf, haralick_plus_chists, labels, cv=cv)
+print('Accuracy (Leave-one-out) with Logistic Regression [texture features + color histograms]: {:.1%}'.format(
+    scores.mean()))
 

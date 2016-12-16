@@ -6,11 +6,11 @@
 # It is made available under the MIT License
 
 import mahotas as mh
-from sklearn import cross_validation
-from sklearn.linear_model.logistic import LogisticRegression
 import numpy as np
 from glob import glob
 from jug import TaskGenerator
+
+# We need to use the `features` module from chapter 10.
 from sys import path
 path.append('../ch10')
 
@@ -20,7 +20,7 @@ path.append('../ch10')
 basedir = '../SimpleImageDataset/'
 
 @TaskGenerator
-def features_for(im):
+def compute_texture(im):
     '''Compute features for an image
 
     Parameters
@@ -33,57 +33,84 @@ def features_for(im):
     fs : ndarray
         1-D array of features
     '''
-    im = mh.imread(im, as_grey=True).astype(np.uint8)
-    return mh.features.haralick(im).mean(0)
+    from features import texture
+    imc = mh.imread(im)
+    return texture(mh.colors.rgb2grey(imc))
 
 @TaskGenerator
-def edginess_sobel_from_fname(fname):
-    from edginess import edginess_sobel
-    return edginess_sobel(mh.imread(fname, as_grey=True))
+def chist(fname):
+    from features import color_histogram
+    im = mh.imread(fname)
+    return color_histogram(im)
+
+@TaskGenerator
+def compute_lbp(fname):
+    from mahotas.features import lbp
+    imc = mh.imread(fname)
+    im = mh.colors.rgb2grey(imc)
+    return lbp(im, radius=8, points=6)
+
 
 @TaskGenerator
 def accuracy(features, labels):
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+    from sklearn import cross_validation
     # We use logistic regression because it is very fast.
     # Feel free to experiment with other classifiers
+    clf = Pipeline([('preproc', StandardScaler()),
+                ('classifier', LogisticRegression())])
+    cv = cross_validation.LeaveOneOut(len(features))
     scores = cross_validation.cross_val_score(
-        LogisticRegression(), features, labels, cv=5)
+        clf, features, labels, cv=cv)
     return scores.mean()
 
 
 @TaskGenerator
-def stack_features(sobels, haralicks):
-    return np.hstack([np.atleast_2d(sobels).T, haralicks])
-
-@TaskGenerator
-def print_results(scores_base, scores_combined):
-    output = open('results.image.txt', 'w')
-    output.write('Accuracy (5 fold x-val) with Logistic Regrssion [std features]: {}%\n'.format(
-            0.1 * round(1000 * scores_base.mean())))
-    output.write('Accuracy (5 fold x-val) with Logistic Regrssion [std features + sobel]: {}%\n'.format(
-        0.1 * round(1000 * scores_combined.mean())))
-    output.close()
+def print_results(scores):
+    with open('results.image.txt', 'w') as output:
+        for k,v in scores:
+            output.write('Accuracy (LOO x-val) with Logistic Regression [{0}]: {1:.1%}\n'.format(
+                k, v.mean()))
 
 
 to_array = TaskGenerator(np.array)
+hstack = TaskGenerator(np.hstack)
 
 haralicks = []
-sobels = []
+chists = []
+lbps = []
 labels = []
 
 # Use glob to get all the images
-images = glob('{}/*.jpg'.format(basedir))
+images = glob('{0}/*.jpg'.format(basedir))
 for fname in sorted(images):
-    haralicks.append(features_for(fname))
-    sobels.append(edginess_sobel_from_fname(fname))
+    haralicks.append(compute_texture(fname))
+    chists.append(chist(fname))
+    lbps.append(compute_lbp(fname))
     labels.append(fname[:-len('00.jpg')]) # The class is encoded in the filename as xxxx00.jpg
 
 haralicks = to_array(haralicks)
-sobels = to_array(sobels)
+chists = to_array(chists)
+lbps = to_array(lbps)
 labels = to_array(labels)
 
 scores_base = accuracy(haralicks, labels)
-haralick_plus_sobel = stack_features(sobels, haralicks)
-scores_combined  = accuracy(haralick_plus_sobel, labels)
+scores_chist = accuracy(chists, labels)
+scores_lbps = accuracy(lbps, labels)
 
-print_results(scores_base, scores_combined)
+combined = hstack([chists, haralicks])
+scores_combined = accuracy(combined, labels)
+
+combined_all = hstack([chists, haralicks, lbps])
+scores_combined_all = accuracy(combined_all, labels)
+
+print_results([
+        ('base', scores_base),
+        ('chists', scores_chist),
+        ('lbps', scores_lbps),
+        ('combined' , scores_combined),
+        ('combined_all' , scores_combined_all),
+        ])
 
